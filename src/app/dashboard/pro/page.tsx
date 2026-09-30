@@ -18,6 +18,9 @@ import {
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, storage } from "@/lib/firebase";
 import { localDb } from "@/lib/localStore";
+import { BookingStatus, BOOKING_STATUS_LABELS, canTransitionBooking } from "@/lib/bookingWorkflow";
+import BookingChat from "@/components/BookingChat";
+import NotificationCenter, { createLocalNotification } from "@/components/NotificationCenter";
 import { 
   DollarSign, Check, X, Calendar, Clock, Sparkles, MapPin, User, Star, Edit, Shield, Info, AlertCircle, Camera, Upload
 } from "lucide-react";
@@ -36,8 +39,11 @@ interface Booking {
   familyMember: string;
   price: number;
   duration: number;
-  status: "pending" | "confirmed" | "completed" | "cancelled";
+  status: BookingStatus;
   startOtp?: string;
+  endOtp?: string;
+  startOtpVerifiedAt?: string;
+  endOtpVerifiedAt?: string;
   createdAt: string;
 }
 
@@ -48,6 +54,7 @@ export default function ProDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [message, setMessage] = useState({ text: "", type: "" });
+  const [chatBooking, setChatBooking] = useState<Booking | null>(null);
 
   // Profile Editor state
   const [editing, setEditing] = useState(false);
@@ -154,6 +161,8 @@ export default function ProDashboardPage() {
       } else {
         localDb.updateDoc("bookings", bookingId, { status: "confirmed" });
       }
+      const acceptedBooking = bookings.find((booking) => booking.id === bookingId);
+      if (acceptedBooking) createLocalNotification(acceptedBooking.customerId, "Booking accepted", `${acceptedBooking.professionalName} accepted your ${acceptedBooking.serviceName} booking.`);
       setMessage({ text: "Booking accepted! ✅", type: "success" });
       await loadProData();
     } catch (err) {
@@ -176,6 +185,8 @@ export default function ProDashboardPage() {
       } else {
         localDb.updateDoc("bookings", bookingId, { status: "cancelled" });
       }
+      const rejectedBooking = bookings.find((booking) => booking.id === bookingId);
+      if (rejectedBooking) createLocalNotification(rejectedBooking.customerId, "Booking declined", `${rejectedBooking.professionalName} declined your booking request.`);
       setMessage({ text: "Booking declined.", type: "success" });
       await loadProData();
     } catch (err) {
@@ -186,11 +197,38 @@ export default function ProDashboardPage() {
     }
   };
 
-  // Complete Booking with OTP Verification
-  const handleCompleteBooking = async (bookingId: string, expectedOtp?: string) => {
+  const updateBookingStatus = async (bookingId: string, nextStatus: BookingStatus) => {
+    const booking = bookings.find((item) => item.id === bookingId);
+    if (!booking || !canTransitionBooking(booking.status, nextStatus)) {
+      setMessage({ text: "This booking cannot move to that status.", type: "error" });
+      return;
+    }
+    setActionLoading(true);
+    setMessage({ text: "", type: "" });
+    try {
+      const updates = { status: nextStatus, ...(nextStatus === "arrived" ? { arrivedAt: new Date().toISOString() } : {}) };
+      if (db) await updateDoc(doc(db, "bookings", bookingId), updates);
+      else localDb.updateDoc("bookings", bookingId, updates);
+      setMessage({ text: `Booking moved to ${BOOKING_STATUS_LABELS[nextStatus]}.`, type: "success" });
+      await loadProData();
+    } catch (err) {
+      console.error(err);
+      setMessage({ text: "Failed to update booking status.", type: "error" });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // Start service only after the professional has arrived and verifies the customer's OTP.
+  const handleStartService = async (bookingId: string, expectedOtp?: string) => {
     const userEnteredOtp = inputOtps[bookingId]?.trim();
-    if (expectedOtp && userEnteredOtp !== expectedOtp) {
+    if (!expectedOtp || userEnteredOtp !== expectedOtp) {
       setMessage({ text: "Invalid Start OTP! Please ask customer for their 4-digit Start OTP.", type: "error" });
+      return;
+    }
+    const booking = bookings.find((item) => item.id === bookingId);
+    if (!booking || !canTransitionBooking(booking.status, "in_progress")) {
+      setMessage({ text: "The professional must mark the booking as Arrived first.", type: "error" });
       return;
     }
     setActionLoading(true);
@@ -198,20 +236,44 @@ export default function ProDashboardPage() {
     try {
       if (db) {
         const bookingRef = doc(db, "bookings", bookingId);
-        await updateDoc(bookingRef, { status: "completed" });
+        await updateDoc(bookingRef, { status: "in_progress", startOtpVerifiedAt: new Date().toISOString() });
+      } else {
+        localDb.updateDoc("bookings", bookingId, { status: "in_progress", startOtpVerifiedAt: new Date().toISOString() });
+      }
+      setMessage({ text: "Start OTP verified. Service is now active. ✅", type: "success" });
+      await loadProData();
+    } catch (err) {
+      console.error(err);
+      setMessage({ text: "Failed to complete booking.", type: "error" });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleCompleteBooking = async (bookingId: string, expectedOtp?: string) => {
+    const userEnteredOtp = inputOtps[bookingId]?.trim();
+    if (!expectedOtp || userEnteredOtp !== expectedOtp) {
+      setMessage({ text: "Invalid End OTP! Ask the customer for the completion OTP.", type: "error" });
+      return;
+    }
+    const booking = bookings.find((item) => item.id === bookingId);
+    if (!booking || !canTransitionBooking(booking.status, "completed")) {
+      setMessage({ text: "Start OTP must be verified before completing the service.", type: "error" });
+      return;
+    }
+    setActionLoading(true);
+    try {
+      if (db) {
+        await updateDoc(doc(db, "bookings", bookingId), { status: "completed", endOtpVerifiedAt: new Date().toISOString(), completedAt: new Date().toISOString() });
         const proRef = doc(db, "professionals", user!.uid);
         const proSnap = await getDoc(proRef);
-        if (proSnap.exists()) {
-          const currentJobs = proSnap.data().completedJobs || 0;
-          await updateDoc(proRef, { completedJobs: currentJobs + 1 });
-        }
+        if (proSnap.exists()) await updateDoc(proRef, { completedJobs: (proSnap.data().completedJobs || 0) + 1 });
       } else {
-        localDb.updateDoc("bookings", bookingId, { status: "completed" });
+        localDb.updateDoc("bookings", bookingId, { status: "completed", endOtpVerifiedAt: new Date().toISOString(), completedAt: new Date().toISOString() });
         const proDoc = localDb.getDoc("professionals", user!.uid);
-        const currentJobs = proDoc.exists() ? ((proDoc.data().completedJobs as number) || 0) : 0;
-        localDb.updateDoc("professionals", user!.uid, { completedJobs: currentJobs + 1 });
+        localDb.updateDoc("professionals", user!.uid, { completedJobs: (proDoc.exists() ? ((proDoc.data().completedJobs as number) || 0) : 0) + 1 });
       }
-      setMessage({ text: "OTP Verified! Service completed successfully. 🎉", type: "success" });
+      setMessage({ text: "End OTP verified. Service completed successfully. 🎉", type: "success" });
       await refreshProfile();
       await loadProData();
     } catch (err) {
@@ -382,13 +444,14 @@ export default function ProDashboardPage() {
 
   // Stats
   const pendingRequests = bookings.filter(b => b.status === "pending");
-  const activeBookings = bookings.filter(b => b.status === "confirmed");
+  const activeBookings = bookings.filter(b => ["confirmed", "on_the_way", "arrived", "in_progress"].includes(b.status));
   const completedBookings = bookings.filter(b => b.status === "completed");
   const earnings = completedBookings.reduce((sum, b) => sum + b.price, 0);
 
   return (
     <div style={{ background: "#f8fafc", minHeight: "100vh" }}>
       <Header />
+      {user && <NotificationCenter userId={user.uid} />}
 
       <main style={{ paddingTop: 110, paddingBottom: 80 }}>
         <div style={{ maxWidth: 1100, margin: "0 auto", padding: "0 1.5rem" }}>
@@ -541,7 +604,7 @@ export default function ProDashboardPage() {
                       <div key={b.id} style={{ background: "white", borderRadius: 20, border: "1px solid #e2e8f0", padding: "1.25rem" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
                           <div>
-                            <span style={{ background: "#dcfce7", color: "#166534", fontSize: "0.7rem", fontWeight: 800, padding: "0.2rem 0.5rem", borderRadius: 99, textTransform: "uppercase" }}>CONFIRMED</span>
+                            <span style={{ background: b.status === "in_progress" ? "#dbeafe" : "#dcfce7", color: b.status === "in_progress" ? "#1d4ed8" : "#166534", fontSize: "0.7rem", fontWeight: 800, padding: "0.2rem 0.5rem", borderRadius: 99, textTransform: "uppercase" }}>{BOOKING_STATUS_LABELS[b.status]}</span>
                             <h4 style={{ fontWeight: 800, fontSize: "1.05rem", color: "#0f172a", marginTop: 6, marginBottom: 2 }}>{b.serviceName}</h4>
                             <span style={{ fontSize: "0.8rem", color: "#475569" }}>Client: <strong>{b.customerName}</strong></span>
                           </div>
@@ -554,10 +617,10 @@ export default function ProDashboardPage() {
                           <span style={{ display: "flex", alignItems: "center", gap: 4 }}><MapPin size={14} /> {b.address}</span>
                         </div>
 
-                        {b.startOtp && (
+                        {(b.status === "arrived" || b.status === "in_progress") && (
                           <div style={{ background: "#f8fafc", borderRadius: 12, padding: "0.75rem", border: "1px dashed #cbd5e1", margin: "10px 0" }}>
                             <label style={{ fontSize: "0.75rem", fontWeight: 700, color: "#475569", display: "block", marginBottom: 4 }}>
-                              🔑 Enter Customer Start OTP:
+                              🔑 Enter Customer {b.status === "arrived" ? "Start" : "End"} OTP:
                             </label>
                             <input
                               type="text"
@@ -570,13 +633,11 @@ export default function ProDashboardPage() {
                           </div>
                         )}
 
-                        <button
-                          onClick={() => handleCompleteBooking(b.id, b.startOtp)}
-                          disabled={actionLoading}
-                          style={{ width: "100%", padding: "0.6rem", borderRadius: 10, border: "none", background: "linear-gradient(135deg, #10b981, #059669)", color: "white", fontWeight: 800, cursor: "pointer", marginTop: 6, fontSize: "0.85rem" }}
-                        >
-                          {b.startOtp ? "🔑 Verify OTP & Finish Service" : "Mark Completed"}
-                        </button>
+                        {b.status === "confirmed" && <button onClick={() => updateBookingStatus(b.id, "on_the_way")} disabled={actionLoading} style={{ width: "100%", padding: "0.6rem", borderRadius: 10, border: "none", background: "#0ea5e9", color: "white", fontWeight: 800, cursor: "pointer", marginTop: 6, fontSize: "0.85rem" }}>🚗 Mark On The Way</button>}
+                        {b.status === "on_the_way" && <button onClick={() => updateBookingStatus(b.id, "arrived")} disabled={actionLoading} style={{ width: "100%", padding: "0.6rem", borderRadius: 10, border: "none", background: "#8b5cf6", color: "white", fontWeight: 800, cursor: "pointer", marginTop: 6, fontSize: "0.85rem" }}>📍 Mark Arrived</button>}
+                        {b.status === "arrived" && <button onClick={() => handleStartService(b.id, b.startOtp)} disabled={actionLoading} style={{ width: "100%", padding: "0.6rem", borderRadius: 10, border: "none", background: "#2563eb", color: "white", fontWeight: 800, cursor: "pointer", marginTop: 6, fontSize: "0.85rem" }}>🔑 Verify Start OTP & Start Service</button>}
+                        {b.status === "in_progress" && <button onClick={() => handleCompleteBooking(b.id, b.endOtp)} disabled={actionLoading} style={{ width: "100%", padding: "0.6rem", borderRadius: 10, border: "none", background: "linear-gradient(135deg, #10b981, #059669)", color: "white", fontWeight: 800, cursor: "pointer", marginTop: 6, fontSize: "0.85rem" }}>✅ Verify End OTP & Complete</button>}
+                        <button onClick={() => setChatBooking(b)} style={{ width: "100%", padding: "0.55rem", borderRadius: 10, border: "1px solid #fbcfe8", background: "#fdf2f8", color: "#be185d", fontWeight: 800, cursor: "pointer", marginTop: 6, fontSize: "0.8rem" }}>💬 Chat with Customer</button>
                       </div>
                     ))}
                   </div>
@@ -760,6 +821,16 @@ export default function ProDashboardPage() {
       </main>
 
       <Footer />
+
+      {chatBooking && user && (
+        <BookingChat
+          bookingId={chatBooking.id}
+          userId={user.uid}
+          userName={proProfile?.name || "Professional"}
+          recipientName={chatBooking.customerName}
+          onClose={() => setChatBooking(null)}
+        />
+      )}
       
       <style>{`
         @media (max-width: 768px) {

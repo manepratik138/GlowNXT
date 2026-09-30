@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { X, CheckCircle, ShieldCheck, QrCode, CreditCard, Smartphone, Wallet, Lock, Download, Sparkles } from "lucide-react";
+import { paymentGateway } from "@/lib/payments";
 
 interface PaymentModalProps {
   isOpen: boolean;
@@ -17,6 +18,7 @@ export default function PaymentModal({ isOpen, onClose, amount, title = "Order &
   const [loading, setLoading] = useState(false);
   const [completed, setCompleted] = useState(false);
   const [txnId, setTxnId] = useState("");
+  const [error, setError] = useState("");
 
   // Card form state
   const [cardNumber, setCardNumber] = useState("");
@@ -25,15 +27,20 @@ export default function PaymentModal({ isOpen, onClose, amount, title = "Order &
 
   if (!isOpen) return null;
 
-  const handlePay = () => {
+  const handlePay = async () => {
     setLoading(true);
-    setTimeout(() => {
-      const generatedTxn = "PAY-" + Math.floor(100000 + Math.random() * 900000);
-      setTxnId(generatedTxn);
+    setError("");
+    try {
+      const intent = await paymentGateway.createPaymentIntent({ amount, method, currency: "INR" });
+      const payment = await paymentGateway.confirmPayment(intent.clientSecret);
+      setTxnId(payment.providerTransactionId || payment.id);
+      setCompleted(payment.status === "paid");
+      if (payment.status === "paid") onSuccess(payment.providerTransactionId || payment.id);
+    } catch (paymentError) {
+      setError(paymentError instanceof Error ? paymentError.message : "Payment could not be started.");
+    } finally {
       setLoading(false);
-      setCompleted(true);
-      onSuccess(generatedTxn);
-    }, 1800);
+    }
   };
 
   const appOwnerCommission = Math.round(amount * 0.15); // 15% App Owner Commission
@@ -100,6 +107,7 @@ export default function PaymentModal({ isOpen, onClose, amount, title = "Order &
         {/* Content */}
         {!completed ? (
           <div style={{ padding: "1.5rem" }}>
+            {error && <div style={{ background: "#fff7ed", border: "1px solid #fed7aa", color: "#9a3412", borderRadius: 12, padding: "0.75rem", marginBottom: "1rem", fontSize: "0.8rem" }}>{error}</div>}
             {/* Payment Method Selector */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: "1.5rem" }}>
               {[

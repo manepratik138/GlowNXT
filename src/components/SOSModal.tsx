@@ -2,14 +2,28 @@
 
 import React from "react";
 import { AlertTriangle, X, Phone, ShieldAlert, Share2, MapPin } from "lucide-react";
+import { localDb } from "@/lib/localStore";
 
 interface SOSModalProps {
   isOpen: boolean;
   onClose: () => void;
+  userId?: string;
+  bookingId?: string;
 }
 
-export default function SOSModal({ isOpen, onClose }: SOSModalProps) {
+export default function SOSModal({ isOpen, onClose, userId, bookingId }: SOSModalProps) {
   if (!isOpen) return null;
+
+  const recordSafetyReport = () => {
+    localDb.setDoc("safetyReports", `safety_${Date.now()}`, {
+      reporterId: userId || "anonymous",
+      bookingId: bookingId || null,
+      category: "emergency",
+      severity: "high",
+      status: "open",
+      createdAt: new Date().toISOString(),
+    });
+  };
 
   return (
     <div
@@ -95,6 +109,7 @@ export default function SOSModal({ isOpen, onClose }: SOSModalProps) {
           {/* Emergency 112 */}
           <a
             href="tel:112"
+            onClick={recordSafetyReport}
             style={{
               display: "flex",
               alignItems: "center",
@@ -116,6 +131,7 @@ export default function SOSModal({ isOpen, onClose }: SOSModalProps) {
           {/* Women Helpline */}
           <a
             href="tel:1091"
+            onClick={recordSafetyReport}
             style={{
               display: "flex",
               alignItems: "center",
@@ -136,6 +152,7 @@ export default function SOSModal({ isOpen, onClose }: SOSModalProps) {
           {/* 24x7 Platform Helpline */}
           <a
             href="tel:18002008888"
+            onClick={recordSafetyReport}
             style={{
               display: "flex",
               alignItems: "center",
@@ -155,7 +172,7 @@ export default function SOSModal({ isOpen, onClose }: SOSModalProps) {
         </div>
 
         <div style={{ fontSize: "0.75rem", color: "#94a3b8" }}>
-          📍 Your location and appointment details are logged with our central security dispatch.
+          Your emergency action is recorded locally for support follow-up. For immediate danger, call 112.
         </div>
       </div>
     </div>

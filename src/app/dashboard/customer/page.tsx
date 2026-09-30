@@ -19,6 +19,7 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { localDb } from "@/lib/localStore";
+import { BookingStatus, BOOKING_STATUS_LABELS, getBookingStatusColor } from "@/lib/bookingWorkflow";
 import { 
   Calendar, Clock, MapPin, Star, Heart, X, Check, AlertCircle, RefreshCw,
   Navigation, AlertTriangle, Wallet, Share2, Copy, CheckCircle2, ShieldCheck
@@ -26,6 +27,8 @@ import {
 import { useWallet } from "@/lib/WalletContext";
 import LiveTrackingModal from "@/components/LiveTrackingModal";
 import SOSModal from "@/components/SOSModal";
+import BookingChat from "@/components/BookingChat";
+import NotificationCenter from "@/components/NotificationCenter";
 
 interface Booking {
   id: string;
@@ -42,7 +45,7 @@ interface Booking {
   familyMember: string;
   price: number;
   duration: number;
-  status: "pending" | "confirmed" | "completed" | "cancelled";
+  status: BookingStatus;
   startOtp?: string;
   endOtp?: string;
   createdAt: string;
@@ -66,6 +69,7 @@ export default function CustomerDashboardPage() {
   const [message, setMessage] = useState({ text: "", type: "" });
   const [activeTab, setActiveTab] = useState<"bookings" | "wallet" | "favourites">("bookings");
   const [trackingBooking, setTrackingBooking] = useState<Booking | null>(null);
+  const [chatBooking, setChatBooking] = useState<Booking | null>(null);
   const [showSOS, setShowSOS] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
   const { balance, referralCode, transactions } = useWallet();
@@ -237,6 +241,7 @@ export default function CustomerDashboardPage() {
     try {
       const reviewData = {
         bookingId: reviewBooking.id,
+        customerId: user!.uid,
         customerName: userProfile?.name || "Customer",
         customerAvatar: "https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100&q=80",
         rating: rating,
@@ -248,6 +253,16 @@ export default function CustomerDashboardPage() {
       };
 
       if (db) {
+        const existingReview = await getDocs(query(
+          collection(db, "reviews"),
+          where("bookingId", "==", reviewBooking.id),
+          where("customerId", "==", user!.uid),
+        ));
+        if (!existingReview.empty) {
+          setMessage({ text: "You have already reviewed this booking.", type: "error" });
+          setActionLoading(false);
+          return;
+        }
         // Write review
         const reviewsRef = collection(db!, "reviews");
         await addDoc(reviewsRef, reviewData);
@@ -267,6 +282,12 @@ export default function CustomerDashboardPage() {
           });
         }
       } else {
+        const existingReview = localDb.getDocs("reviews", (review) => review.bookingId === reviewBooking.id && review.customerId === user!.uid);
+        if (existingReview.length > 0) {
+          setMessage({ text: "You have already reviewed this booking.", type: "error" });
+          setActionLoading(false);
+          return;
+        }
         const reviewId = `review_${Date.now()}`;
         localDb.setDoc("reviews", reviewId, reviewData);
         
@@ -338,12 +359,13 @@ export default function CustomerDashboardPage() {
     );
   }
 
-  const upcomingBookings = bookings.filter(b => b.status === "pending" || b.status === "confirmed");
-  const pastBookings = bookings.filter(b => b.status === "completed" || b.status === "cancelled");
+  const upcomingBookings = bookings.filter(b => !["completed", "cancelled", "refunded"].includes(b.status));
+  const pastBookings = bookings.filter(b => ["completed", "cancelled", "refunded"].includes(b.status));
 
   return (
     <div style={{ background: "#f8fafc", minHeight: "100vh" }}>
       <Header />
+      {user && <NotificationCenter userId={user.uid} />}
 
       <main style={{ paddingTop: 110, paddingBottom: 80 }}>
         <div style={{ maxWidth: 1100, margin: "0 auto", padding: "0 1.5rem" }}>
@@ -456,19 +478,19 @@ export default function CustomerDashboardPage() {
                           <div style={{ flex: 1 }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
                               <span style={{ 
-                                background: b.status === "confirmed" ? "#dcfce7" : "#fef3c7", 
-                                color: b.status === "confirmed" ? "#166534" : "#92400e", 
+                                background: getBookingStatusColor(b.status).background,
+                                color: getBookingStatusColor(b.status).color,
                                 fontSize: "0.7rem", 
                                 fontWeight: 800, 
                                 padding: "0.2rem 0.6rem", 
                                 borderRadius: 99,
                                 textTransform: "uppercase" 
                               }}>
-                                {b.status}
+                                {BOOKING_STATUS_LABELS[b.status]}
                               </span>
                               
                               {/* START OTP BADGE */}
-                              <span style={{
+                              {b.status !== "pending" && <span style={{
                                 background: "#fff1f2",
                                 color: "#be123c",
                                 border: "1px dashed #f43f5e",
@@ -477,8 +499,9 @@ export default function CustomerDashboardPage() {
                                 fontSize: "0.75rem",
                                 fontWeight: 800,
                               }}>
-                                🔑 Doorstep Start OTP: <strong>{b.startOtp || "4829"}</strong>
+                                🔑 Doorstep Start OTP: <strong>{b.startOtp || "Waiting for confirmation"}</strong>
                               </span>
+                              }
 
                               <span style={{ fontSize: "0.8rem", color: "#64748b", fontWeight: 600 }}>Recipient: {b.familyMember}</span>
                             </div>
@@ -500,9 +523,16 @@ export default function CustomerDashboardPage() {
                           <div style={{ textAlign: "right", display: "flex", flexDirection: "column", gap: 8, minWidth: 140 }}>
                             <div style={{ fontWeight: 900, fontSize: "1.2rem", color: "#e11d48" }}>₹{b.price}</div>
                             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                              <button
+                                onClick={() => setChatBooking(b)}
+                                style={{ background: "#fdf2f8", border: "none", color: "#be185d", padding: "0.4rem", borderRadius: 8, fontSize: "0.75rem", fontWeight: 700, cursor: "pointer" }}
+                              >
+                                💬 Chat with Professional
+                              </button>
                               {/* Live Tracking Trigger */}
                               <button
                                 onClick={() => setTrackingBooking(b)}
+                                disabled={b.status === "pending"}
                                 style={{
                                   background: "linear-gradient(135deg, #0284c7, #0369a1)",
                                   color: "white",
@@ -511,7 +541,8 @@ export default function CustomerDashboardPage() {
                                   borderRadius: 10,
                                   fontSize: "0.75rem",
                                   fontWeight: 800,
-                                  cursor: "pointer",
+                                  cursor: b.status === "pending" ? "not-allowed" : "pointer",
+                                  opacity: b.status === "pending" ? 0.5 : 1,
                                   display: "flex",
                                   alignItems: "center",
                                   justifyContent: "center",
@@ -569,7 +600,7 @@ export default function CustomerDashboardPage() {
                               padding: "0.2rem 0.5rem", 
                               borderRadius: 99 
                             }}>
-                              {b.status}
+                              {BOOKING_STATUS_LABELS[b.status]}
                             </span>
                             <span style={{ fontSize: "0.75rem", color: "#64748b" }}>{b.date} • {b.timeSlot}</span>
                           </div>
@@ -943,6 +974,16 @@ export default function CustomerDashboardPage() {
           )}
 
           {/* LIVE GPS TRACKING MODAL */}
+          {chatBooking && user && (
+            <BookingChat
+              bookingId={chatBooking.id}
+              userId={user.uid}
+              userName={userProfile?.name || "Customer"}
+              recipientName={chatBooking.professionalName}
+              onClose={() => setChatBooking(null)}
+            />
+          )}
+
           {trackingBooking && (
             <LiveTrackingModal
               isOpen={Boolean(trackingBooking)}
@@ -961,7 +1002,7 @@ export default function CustomerDashboardPage() {
           )}
 
           {/* EMERGENCY SOS MODAL */}
-          <SOSModal isOpen={showSOS} onClose={() => setShowSOS(false)} />
+          <SOSModal isOpen={showSOS} onClose={() => setShowSOS(false)} userId={user?.uid} bookingId={trackingBooking?.id} />
 
         </div>
       </main>
