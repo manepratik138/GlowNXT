@@ -237,6 +237,7 @@ export default function AIChatbot() {
     <>
       {/* Floating Trigger Button */}
       <button
+        className="beautygenie-trigger"
         onClick={() => setIsOpen((prev) => !prev)}
         style={{
           position: "fixed",
@@ -281,6 +282,7 @@ export default function AIChatbot() {
       {/* Chat Window Modal */}
       {isOpen && (
         <div
+          className="beautygenie-window"
           style={{
             position: "fixed",
             bottom: 84,

@@ -54,6 +54,7 @@ export default function Header({ transparent = false }: { transparent?: boolean 
       }}
     >
       <div
+        className="header-inner"
         style={{
           maxWidth: 1280,
           margin: "0 auto",
@@ -156,9 +157,10 @@ export default function Header({ transparent = false }: { transparent?: boolean 
         </nav>
 
         {/* CTA & Tools buttons */}
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div className="header-tools" style={{ display: "flex", alignItems: "center", gap: 10 }}>
           {/* Language Switcher */}
           <div
+            className="header-language"
             style={{
               display: "flex",
               alignItems: "center",
@@ -190,6 +192,7 @@ export default function Header({ transparent = false }: { transparent?: boolean 
 
           {/* VIP Pass Badge Pill */}
           <button
+            className="header-desktop-only"
             onClick={() => {
               if (!isVIP) {
                 if (window.confirm("Join GlowNXT VIP Club for ₹499/mo? Get 20% OFF all services & ₹0 travel fee!")) {
@@ -219,6 +222,7 @@ export default function Header({ transparent = false }: { transparent?: boolean 
 
           {/* Wallet Balance Pill */}
           <Link
+            className="header-desktop-only"
             href="/dashboard/customer"
             style={{
               textDecoration: "none",
@@ -284,6 +288,7 @@ export default function Header({ transparent = false }: { transparent?: boolean 
           {user ? (
             <>
               <Link
+                className="header-auth"
                 href={dashboardLink}
                 style={{
                   textDecoration: "none",
@@ -299,6 +304,7 @@ export default function Header({ transparent = false }: { transparent?: boolean 
                 Dashboard
               </Link>
               <button
+                className="header-auth"
                 onClick={() => { logout(); window.location.href = "/"; }}
                 style={{
                   background: "transparent",
@@ -318,6 +324,7 @@ export default function Header({ transparent = false }: { transparent?: boolean 
           ) : (
             <>
               <Link
+                className="header-auth"
                 href="/auth/login"
                 style={{
                   textDecoration: "none",

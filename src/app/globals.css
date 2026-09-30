@@ -41,6 +41,86 @@ body {
   overflow-x: hidden;
 }
 
+.header-inner {
+  min-width: 0;
+}
+
+.header-tools {
+  min-width: 0;
+}
+
+.header-desktop-only,
+.header-auth {
+  flex-shrink: 0;
+}
+
+.hidden-mobile {
+  display: flex;
+}
+
+.mobile-menu-btn {
+  display: none !important;
+}
+
+@media (max-width: 768px) {
+  .header-inner {
+    height: 64px !important;
+    padding: 0 0.75rem !important;
+    gap: 8px !important;
+  }
+
+  .header-inner > a:first-child {
+    flex-shrink: 0;
+  }
+
+  .header-tools {
+    gap: 6px !important;
+  }
+
+  .header-desktop-only,
+  .header-auth,
+  .hidden-mobile {
+    display: none !important;
+  }
+
+  .header-language button {
+    padding: 3px 6px !important;
+  }
+
+  .header-language button:not(:first-child) {
+    display: none;
+  }
+
+  .mobile-menu-btn {
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+  }
+
+  main, section {
+    max-width: 100%;
+  }
+
+  h1, h2, h3, h4, p, a, button {
+    overflow-wrap: anywhere;
+  }
+
+  .beautygenie-trigger {
+    right: 12px !important;
+    bottom: 12px !important;
+    padding: 10px 13px !important;
+    font-size: 0.78rem !important;
+  }
+
+  .beautygenie-window {
+    right: 8px !important;
+    bottom: 68px !important;
+    width: calc(100vw - 16px) !important;
+    height: min(540px, calc(100vh - 84px)) !important;
+    border-radius: 18px !important;
+  }
+}
+
 /* ===== CUSTOM SCROLLBAR ===== */
 ::-webkit-scrollbar {
   width: 6px;
