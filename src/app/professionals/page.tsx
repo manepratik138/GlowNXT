@@ -47,7 +47,7 @@ export default function ProfessionalsPage() {
       if (firestore) {
         const snap = await getDocs(collection(firestore, "professionals"));
         const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as Professional));
-        setProfessionals(list.length > 0 ? list.filter(p => p.available !== false) : PROFESSIONALS);
+        setProfessionals(list.length > 0 ? list.filter(p => p.available !== false && p.verificationStatus !== "pending" && p.verificationStatus !== "rejected") : PROFESSIONALS);
 
         if (user) {
           const favsSnap = await getDocs(collection(firestore, "favourites"));
@@ -58,7 +58,7 @@ export default function ProfessionalsPage() {
         }
       } else {
         const localList = localDb.getDocs("professionals") as unknown as Professional[];
-        setProfessionals(localList.length > 0 ? localList.filter(p => p.available !== false) : PROFESSIONALS);
+        setProfessionals(localList.length > 0 ? localList.filter(p => p.available !== false && p.verificationStatus !== "pending" && p.verificationStatus !== "rejected") : PROFESSIONALS);
         if (user) {
           const favs = localDb.getDocs("favourites", (d) => d.customerId === user.uid);
           setFavouritesList(favs.map(f => f.professionalId as string));

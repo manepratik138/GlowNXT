@@ -8,6 +8,7 @@ import Footer from "@/components/Footer";
 import { Star, MapPin, Award, CheckCircle, Sparkles, Shield, Calendar, Clock, ArrowRight } from "lucide-react";
 import { doc, getDoc, collection, query, where, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { PROFESSIONALS } from "@/lib/data";
 
 interface Professional {
   id: string;
@@ -30,6 +31,7 @@ interface Professional {
   portfolio?: string[];
   availableSlots?: string[];
   priceList?: { service: string; price: number }[];
+  verificationStatus?: "pending" | "approved" | "rejected";
 }
 
 interface Review {
@@ -53,9 +55,18 @@ export default function ProfessionalProfilePage({ params }: { params: Promise<{ 
 
   useEffect(() => {
     async function loadData() {
-      if (!db) return;
       try {
         setLoading(true);
+        if (!db) {
+          const staticPro = PROFESSIONALS.find((professional) => professional.id === proId);
+          if (!staticPro) {
+            setError("Professional not found.");
+          } else {
+            setPro(staticPro);
+          }
+          setLoading(false);
+          return;
+        }
         // Load professional
         const proDocRef = doc(db!, "professionals", proId);
         const proDoc = await getDoc(proDocRef);

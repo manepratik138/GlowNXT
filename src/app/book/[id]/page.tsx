@@ -46,6 +46,8 @@ interface FirestorePro {
   priceList?: { service: string; price: number }[];
 }
 
+const SAVED_ADDRESSES_KEY = "glownxt_saved_addresses";
+
 function BookingWizardContent({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params);
   const proId = resolvedParams.id;
@@ -68,9 +70,11 @@ function BookingWizardContent({ params }: { params: Promise<{ id: string }> }) {
 
   // Selected values
   const [selectedService, setSelectedService] = useState<FirestoreService | null>(null);
-  const [selectedDate, setSelectedDate] = useState("2026-08-25");
+  const [selectedDate, setSelectedDate] = useState("");
   const [selectedSlot, setSelectedSlot] = useState("10:00 AM");
   const [address, setAddress] = useState("Flat 402, Sunshine Heights, Bandra West, Mumbai");
+  const [savedAddresses, setSavedAddresses] = useState<string[]>([]);
+  const [locationStatus, setLocationStatus] = useState("");
   const [bookingFor, setBookingFor] = useState("Self");
   const [paymentMethod, setPaymentMethod] = useState("upi");
   const [coupon, setCoupon] = useState("");
@@ -80,6 +84,17 @@ function BookingWizardContent({ params }: { params: Promise<{ id: string }> }) {
   const [startOtp, setStartOtp] = useState("4829");
   const [endOtp, setEndOtp] = useState("7193");
 
+  const appointmentDates = Array.from({ length: 7 }, (_, index) => {
+    const date = new Date();
+    date.setHours(12, 0, 0, 0);
+    date.setDate(date.getDate() + index + 1);
+    return {
+      val: date.toISOString().slice(0, 10),
+      day: date.toLocaleDateString("en-IN", { weekday: "short" }),
+      date: date.toLocaleDateString("en-IN", { month: "short", day: "numeric" }),
+    };
+  });
+
   const stepsList = [
     { num: 1, label: fromCart ? "Services (Cart)" : "Service" },
     { num: 2, label: "Date & Time" },
@@ -87,6 +102,39 @@ function BookingWizardContent({ params }: { params: Promise<{ id: string }> }) {
     { num: 4, label: "Summary" },
     { num: 5, label: "Payment" },
   ];
+
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(window.localStorage.getItem(SAVED_ADDRESSES_KEY) || "[]");
+      if (Array.isArray(saved)) setSavedAddresses(saved.filter((item): item is string => typeof item === "string"));
+    } catch {
+      setSavedAddresses([]);
+    }
+  }, []);
+
+  const saveAddress = () => {
+    const cleanAddress = address.trim();
+    if (!cleanAddress) return;
+    const nextAddresses = [cleanAddress, ...savedAddresses.filter((item) => item !== cleanAddress)].slice(0, 5);
+    setSavedAddresses(nextAddresses);
+    window.localStorage.setItem(SAVED_ADDRESSES_KEY, JSON.stringify(nextAddresses));
+  };
+
+  const detectAddress = () => {
+    if (!navigator.geolocation) {
+      setLocationStatus("Location is not supported by this browser. Please enter your address manually.");
+      return;
+    }
+    setLocationStatus("Requesting your location permission...");
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => {
+        setAddress(`Current location coordinates: ${coords.latitude.toFixed(5)}, ${coords.longitude.toFixed(5)}`);
+        setLocationStatus("Location captured. Add your area, city and landmark for doorstep service.");
+      },
+      () => setLocationStatus("Location permission was not granted. Please enter your address manually."),
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 300000 },
+    );
+  };
 
   // Load Pro and Services on mount
   useEffect(() => {
@@ -134,6 +182,7 @@ function BookingWizardContent({ params }: { params: Promise<{ id: string }> }) {
         if (proData.availableSlots && proData.availableSlots.length > 0) {
           setSelectedSlot(proData.availableSlots[0]);
         }
+        setSelectedDate(appointmentDates[0].val);
       } catch (err) {
         console.error("Error loading booking details:", err);
         const fallbackPro = PROFESSIONALS[0] as unknown as FirestorePro;
@@ -147,11 +196,15 @@ function BookingWizardContent({ params }: { params: Promise<{ id: string }> }) {
   }, [proId]);
 
   const applyCoupon = () => {
-    if (coupon.toUpperCase() === "BEAUTY200") {
-      setDiscount(200);
-    } else {
-      alert("Invalid coupon code. Try BEAUTY200 for ₹200 off!");
-    }
+    const code = coupon.trim().toUpperCase();
+    const discounts: Record<string, number> = {
+      BEAUTY200: 200,
+      WELCOME10: Math.min(300, Math.round(basePrice * 0.1)),
+      GLOW20: Math.min(500, Math.round(basePrice * 0.2)),
+      BRIDAL15: Math.min(1000, Math.round(basePrice * 0.15)),
+    };
+    if (discounts[code] > 0) setDiscount(discounts[code]);
+    else alert("Invalid or unavailable coupon. Try BEAUTY200, WELCOME10, GLOW20 or BRIDAL15.");
   };
 
   const isCartMode = fromCart && cartItems.length > 0;
@@ -203,7 +256,7 @@ function BookingWizardContent({ params }: { params: Promise<{ id: string }> }) {
         familyMember: bookingFor,
         price: finalPrice,
         duration: totalMinutes,
-        status: "confirmed" as const,
+        status: "pending" as const,
         paymentMethod: paymentMethod,
         startOtp: generatedStart,
         endOtp: generatedEnd,
@@ -481,13 +534,7 @@ function BookingWizardContent({ params }: { params: Promise<{ id: string }> }) {
                   Select Appointment Date
                 </label>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(110px, 1fr))", gap: 10 }}>
-                  {[
-                    { day: "Tue", date: "Aug 25", val: "2026-08-25" },
-                    { day: "Wed", date: "Aug 26", val: "2026-08-26" },
-                    { day: "Thu", date: "Aug 27", val: "2026-08-27" },
-                    { day: "Fri", date: "Aug 28", val: "2026-08-28" },
-                    { day: "Sat", date: "Aug 29", val: "2026-08-29" },
-                  ].map((item) => (
+                  {appointmentDates.map((item) => (
                     <div
                       key={item.val}
                       onClick={() => setSelectedDate(item.val)}
@@ -575,11 +622,23 @@ function BookingWizardContent({ params }: { params: Promise<{ id: string }> }) {
                     style={{ width: "100%", padding: "0.875rem", borderRadius: 14, border: "2px solid #e2e8f0", outline: "none", fontSize: "0.9rem", fontFamily: "inherit" }}
                   />
                   <button
-                    onClick={() => setAddress("Current Location: Bandra West, Mumbai (Detected by GPS)")}
+                    onClick={detectAddress}
                     style={{ position: "absolute", bottom: 12, right: 12, background: "#fce7f3", color: "#9d174d", border: "none", borderRadius: 8, padding: "0.3rem 0.75rem", fontSize: "0.75rem", fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
                   >
                     <Locate size={12} /> Auto-Detect GPS
                   </button>
+                </div>
+                {locationStatus && <p style={{ margin: "0.5rem 0 0", color: "#64748b", fontSize: "0.75rem" }}>{locationStatus}</p>}
+                <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+                  <button type="button" onClick={saveAddress} style={{ border: "1px solid #fda4af", borderRadius: 8, background: "#fff7f8", color: "#9f1239", padding: "0.45rem 0.75rem", fontSize: "0.75rem", fontWeight: 800, cursor: "pointer" }}>
+                    Save this address
+                  </button>
+                  {savedAddresses.length > 0 && (
+                    <select value={savedAddresses.includes(address) ? address : ""} onChange={(event) => setAddress(event.target.value)} style={{ flex: 1, minWidth: 220, border: "1px solid #cbd5e1", borderRadius: 8, padding: "0.45rem", fontSize: "0.75rem", color: "#334155", background: "white" }}>
+                      <option value="">Use a saved address</option>
+                      {savedAddresses.map((savedAddress) => <option key={savedAddress} value={savedAddress}>{savedAddress.slice(0, 70)}</option>)}
+                    </select>
+                  )}
                 </div>
               </div>
 
