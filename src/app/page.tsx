@@ -631,6 +631,26 @@ function CategorySection() {
 // ─── Featured Professionals ───────────────────────────────────────────────
 function ProfessionalsSection() {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [selectedArea, setSelectedArea] = useState("All areas");
+
+  const areaOptions = [
+    "All areas",
+    ...Array.from(new Set(PROFESSIONALS.map((professional) => professional.location))),
+  ];
+
+  useEffect(() => {
+    const savedArea = window.localStorage.getItem("glownxt_area");
+    if (savedArea && areaOptions.includes(savedArea)) setSelectedArea(savedArea);
+  }, [areaOptions]);
+
+  const handleAreaChange = (area: string) => {
+    setSelectedArea(area);
+    window.localStorage.setItem("glownxt_area", area);
+  };
+
+  const visibleProfessionals = PROFESSIONALS
+    .filter((professional) => selectedArea === "All areas" || professional.location === selectedArea)
+    .sort((first, second) => Number(second.available) - Number(first.available) || second.rating - first.rating);
 
   const scroll = (dir: "left" | "right") => {
     if (!scrollRef.current) return;
@@ -642,12 +662,12 @@ function ProfessionalsSection() {
       <div style={{ maxWidth: 1280, margin: "0 auto", padding: "0 1.5rem" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: "2.5rem", flexWrap: "wrap", gap: "1rem" }}>
           <div>
-            <span className="badge badge-gold" style={{ marginBottom: "0.75rem" }}>⭐ Top Professionals</span>
+            <span className="badge badge-gold" style={{ marginBottom: "0.75rem" }}>⭐ Verified Professionals Near You</span>
             <h2 style={{ fontSize: "clamp(1.75rem, 4vw, 2.75rem)", fontWeight: 900, color: "#0f172a", letterSpacing: "-0.02em" }}>
-              Meet Our Expert Beauties
+              Find Your Nearby Expert
             </h2>
             <p style={{ color: "#64748b", fontSize: "1rem", marginTop: "0.5rem" }}>
-              Handpicked, verified & top-rated professionals near you.
+              Choose your area to see available, verified professionals who serve your doorstep.
             </p>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
@@ -675,6 +695,22 @@ function ProfessionalsSection() {
           </div>
         </div>
 
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: "1.5rem", padding: "0.9rem 1rem", background: "#fff7f8", border: "1px solid #fecdd3", borderRadius: 14 }}>
+          <MapPin size={18} color="#e11d48" />
+          <label htmlFor="nearby-area" style={{ fontWeight: 800, color: "#0f172a", fontSize: "0.85rem" }}>Your area</label>
+          <select
+            id="nearby-area"
+            value={selectedArea}
+            onChange={(event) => handleAreaChange(event.target.value)}
+            style={{ minWidth: 220, border: "1px solid #fda4af", borderRadius: 9, padding: "0.55rem 0.75rem", color: "#334155", background: "white", fontWeight: 700, outline: "none" }}
+          >
+            {areaOptions.map((area) => <option key={area} value={area}>{area}</option>)}
+          </select>
+          <span style={{ color: "#9f1239", fontSize: "0.75rem" }}>
+            {selectedArea === "All areas" ? "Showing top available experts across our service areas" : `${visibleProfessionals.length} expert${visibleProfessionals.length === 1 ? "" : "s"} serve this area`}
+          </span>
+        </div>
+
         {/* Scroll container */}
         <div
           ref={scrollRef}
@@ -687,7 +723,7 @@ function ProfessionalsSection() {
             msOverflowStyle: "none",
           }}
         >
-          {PROFESSIONALS.map((pro) => (
+          {visibleProfessionals.map((pro) => (
             <div
               key={pro.id}
               className="card"
@@ -746,6 +782,9 @@ function ProfessionalsSection() {
                 <div style={{ display: "flex", alignItems: "center", gap: 6, color: "#64748b", fontSize: "0.8rem" }}>
                   <MapPin size={13} /> {pro.location}
                 </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, color: pro.available ? "#15803d" : "#64748b", fontSize: "0.8rem", fontWeight: 700 }}>
+                  <Clock size={13} /> {pro.available ? "Available for doorstep booking" : "Next slot available soon"}
+                </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 6, color: "#64748b", fontSize: "0.8rem" }}>
                   <Award size={13} /> {pro.experience} yrs · {pro.completedJobs.toLocaleString()} jobs
                 </div>
@@ -783,6 +822,11 @@ function ProfessionalsSection() {
               </div>
             </div>
           ))}
+          {visibleProfessionals.length === 0 && (
+            <div style={{ width: "100%", padding: "2rem", textAlign: "center", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 16, color: "#64748b" }}>
+              No professional is listed in this area yet. Choose another nearby area or view all professionals.
+            </div>
+          )}
         </div>
 
         <div style={{ textAlign: "center", marginTop: "2rem" }}>
