@@ -60,7 +60,7 @@ export default function RegisterPage() {
       setError("");
     } catch (err: unknown) {
       const code = (err as { code?: string }).code || "";
-      setError(code === "auth/operation-not-allowed" ? "Enable Phone provider in Firebase Authentication." : "Could not send OTP. Check Firebase Authorized domains and Phone Auth.");
+      setError(code === "auth/operation-not-allowed" ? "Enable Phone provider in Firebase Authentication." : code === "auth/unauthorized-domain" || code === "auth/invalid-app-credential" ? "Add localhost, 127.0.0.1 and your Vercel domain in Firebase Authorized domains." : "Could not send OTP. Check Firebase Authorized domains and Phone Auth.");
       recaptchaVerifier.current?.clear();
       recaptchaVerifier.current = null;
     } finally {

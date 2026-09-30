@@ -90,6 +90,8 @@ export default function LoginPage() {
         "auth/invalid-phone-number": "Invalid phone number. Use a 10-digit Indian number.",
         "auth/operation-not-allowed": "Phone provider is not enabled in Firebase Authentication.",
         "auth/captcha-check-failed": "reCAPTCHA failed. Add this domain in Firebase Authorized domains.",
+        "auth/invalid-app-credential": "Firebase could not verify this app. Add localhost/127.0.0.1 or your Vercel domain to Authorized domains.",
+        "auth/unauthorized-domain": "This website domain is not authorized in Firebase Authentication settings.",
         "auth/quota-exceeded": "Firebase SMS quota is exceeded. Check billing/quota settings.",
         "auth/too-many-requests": "Too many attempts. Wait and try again later.",
       };
