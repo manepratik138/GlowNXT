@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import { Sparkles, Mail, Lock, User, Phone } from "lucide-react";
-import { createUserWithEmailAndPassword } from "firebase/auth";
+import { ConfirmationResult, RecaptchaVerifier, createUserWithEmailAndPassword, signInWithPhoneNumber, signOut } from "firebase/auth";
 import { doc, setDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { localAuthService } from "@/lib/localAuthService";
@@ -28,6 +28,68 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
+  const [otpSent, setOtpSent] = useState(false);
+  const [otp, setOtp] = useState("");
+  const [phoneVerified, setPhoneVerified] = useState(false);
+  const [demoOtp, setDemoOtp] = useState("");
+  const confirmationResult = useRef<ConfirmationResult | null>(null);
+  const recaptchaVerifier = useRef<RecaptchaVerifier | null>(null);
+
+  const normalizedPhone = () => {
+    const digits = form.phone.replace(/\D/g, "");
+    if (digits.length === 10) return `+91${digits}`;
+    if (digits.length === 12 && digits.startsWith("91")) return `+${digits}`;
+    return "";
+  };
+
+  const sendRegistrationOtp = async () => {
+    const formattedPhone = normalizedPhone();
+    if (!formattedPhone) {
+      setError("Enter a valid 10-digit Indian mobile number.");
+      setLoading(false);
+      return;
+    }
+    try {
+      if (!auth) {
+        setDemoOtp("123456");
+      } else {
+        if (!recaptchaVerifier.current) recaptchaVerifier.current = new RecaptchaVerifier(auth, "registration-recaptcha", { size: "invisible" });
+        confirmationResult.current = await signInWithPhoneNumber(auth, formattedPhone, recaptchaVerifier.current);
+      }
+      setOtpSent(true);
+      setError("");
+    } catch (err: unknown) {
+      const code = (err as { code?: string }).code || "";
+      setError(code === "auth/operation-not-allowed" ? "Enable Phone provider in Firebase Authentication." : "Could not send OTP. Check Firebase Authorized domains and Phone Auth.");
+      recaptchaVerifier.current?.clear();
+      recaptchaVerifier.current = null;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const verifyRegistrationOtp = async () => {
+    if (!/^\d{6}$/.test(otp)) {
+      setError("Enter the 6-digit OTP.");
+      setLoading(false);
+      return;
+    }
+    try {
+      if (!auth) {
+        if (otp !== demoOtp) throw new Error("invalid-demo-otp");
+      } else {
+        if (!confirmationResult.current) throw new Error("otp-session-expired");
+        await confirmationResult.current.confirm(otp);
+        await signOut(auth);
+      }
+      setPhoneVerified(true);
+      setError("");
+    } catch (err: unknown) {
+      setError(err instanceof Error && err.message === "invalid-demo-otp" ? "Incorrect OTP. Use 123456 in local demo mode." : "OTP verification failed. Please request a new OTP.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -44,6 +106,12 @@ export default function RegisterPage() {
     if (form.password.length < 6) {
       setError("Password must be at least 6 characters.");
       setLoading(false);
+      return;
+    }
+
+    if (!phoneVerified) {
+      if (otpSent) await verifyRegistrationOtp();
+      else await sendRegistrationOtp();
       return;
     }
 
@@ -270,6 +338,10 @@ export default function RegisterPage() {
                     style={{ border: "none", outline: "none", fontSize: "0.9rem", width: "100%", fontWeight: 600, color: "#0f172a" }}
                   />
                 </div>
+                {otpSent && !phoneVerified && <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8, padding: "0.65rem 0.8rem", borderRadius: 10, border: "2px solid #fda4af", background: "#fff7f8" }}><Phone size={16} color="#e11d48" /><input type="text" inputMode="numeric" maxLength={6} placeholder="Enter 6-digit OTP" value={otp} onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))} style={{ border: "none", outline: "none", background: "transparent", width: "100%", fontWeight: 800, letterSpacing: "0.2em" }} /></div>}
+                {phoneVerified && <div style={{ marginTop: 8, color: "#166534", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 10, padding: "0.55rem 0.75rem", fontSize: "0.78rem", fontWeight: 800 }}>✓ Mobile number verified</div>}
+                {demoOtp && !phoneVerified && <div style={{ marginTop: 6, color: "#92400e", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 10, padding: "0.55rem 0.75rem", fontSize: "0.75rem" }}>Local demo OTP: <strong>123456</strong></div>}
+                <div id="registration-recaptcha" />
               </div>
 
               {/* Email */}
@@ -332,7 +404,7 @@ export default function RegisterPage() {
                   boxShadow: (loading || success) ? "none" : "0 8px 24px rgba(225,29,72,0.35)",
                 }}
               >
-                {loading ? "Creating Account..." : success ? "Redirecting..." : "Create Account 🚀"}
+                {loading ? (otpSent && !phoneVerified ? "Verifying OTP..." : "Sending OTP...") : success ? "Redirecting..." : phoneVerified ? "Create Account 🚀" : otpSent ? "Verify Mobile OTP" : "Send Mobile OTP"}
               </button>
             </form>
 
