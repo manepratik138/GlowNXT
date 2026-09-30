@@ -7,14 +7,21 @@ import Footer from "@/components/Footer";
 import { useAuth } from "@/lib/AuthContext";
 import { addDoc, collection, deleteDoc, doc, getDocs, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { localDb } from "@/lib/localStore";
 import { Check, ClipboardList, DollarSign, LoaderCircle, Search, Shield, UserCheck, Users, X } from "lucide-react";
 
-type Tab = "overview" | "professionals" | "services" | "bookings";
+type Tab = "overview" | "users" | "professionals" | "services" | "bookings";
 type VerificationStatus = "pending" | "approved" | "rejected";
 type BookingStatus = "pending" | "confirmed" | "completed" | "cancelled";
 interface Professional { id: string; name: string; title?: string; location?: string; experience?: number; services?: string[]; bio?: string; createdAt?: string; available?: boolean; verificationStatus?: VerificationStatus; }
 interface Service { id: string; name: string; category: string; description: string; price: number; duration: number; image: string; badge?: string; active?: boolean; rating?: number; reviewCount?: number; }
 interface Booking { id: string; serviceName: string; professionalName: string; customerName: string; date: string; timeSlot: string; price: number; status: BookingStatus; paymentStatus?: string; }
+interface AdminUser { id: string; name?: string; email?: string; phone?: string; role?: string; city?: string; createdAt?: string; }
+interface LoginActivity { id: string; userId: string; email?: string; phone?: string; method?: string; role?: string; userAgent?: string; createdAt: string; }
+
+function AdminUsersPanel({ users, loginActivity }: { users: AdminUser[]; loginActivity: LoginActivity[] }) {
+  return <section style={{ background: "white", borderRadius: 20, padding: "1.25rem", border: "1px solid #e2e8f0", marginBottom: "1.5rem" }}><div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 14 }}><div><h2 style={{ margin: 0 }}>Users & Login Activity</h2><p style={{ margin: "5px 0 0", color: "#64748b", fontSize: ".85rem" }}>Registered accounts and successful logins. Passwords and OTPs are never shown.</p></div><span style={statusStyle("active")}>{users.length} accounts</span></div><div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse", minWidth: 720, fontSize: ".82rem" }}><thead><tr style={{ textAlign: "left", color: "#475569", borderBottom: "2px solid #e2e8f0" }}>{["User", "Role", "Contact", "City", "Joined", "Last Login"].map(head => <th key={head} style={{ padding: ".7rem .5rem" }}>{head}</th>)}</tr></thead><tbody>{users.map(account => { const lastLogin = loginActivity.find(activity => activity.userId === account.id); return <tr key={account.id} style={{ borderBottom: "1px solid #f1f5f9" }}><td style={{ padding: ".7rem .5rem" }}><strong>{account.name || "Unnamed user"}</strong><br /><small style={{ color: "#64748b" }}>{account.email || "No email"}</small></td><td style={{ padding: ".7rem .5rem" }}><span style={statusStyle(account.role || "customer")}>{account.role || "customer"}</span></td><td style={{ padding: ".7rem .5rem" }}>{account.phone || "Not added"}</td><td style={{ padding: ".7rem .5rem" }}>{account.city || "Not added"}</td><td style={{ padding: ".7rem .5rem", color: "#64748b" }}>{account.createdAt ? new Date(account.createdAt).toLocaleDateString("en-IN") : "-"}</td><td style={{ padding: ".7rem .5rem", color: "#64748b" }}>{lastLogin ? `${new Date(lastLogin.createdAt).toLocaleString("en-IN")} · ${lastLogin.method || "login"}` : "No recorded login"}</td></tr>; })}{!users.length && <tr><td colSpan={6} style={{ padding: "2rem", textAlign: "center", color: "#64748b" }}>No users found.</td></tr>}</tbody></table></div><h3 style={{ margin: "1.5rem 0 .75rem" }}>Recent login history</h3><div style={{ display: "grid", gap: 8 }}>{loginActivity.slice(0, 20).map(activity => <div key={activity.id} style={{ border: "1px solid #e2e8f0", borderRadius: 12, padding: ".7rem .8rem", display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}><span><strong>{activity.email || activity.phone || activity.userId}</strong> · {activity.role || "customer"}</span><span style={{ color: "#64748b", fontSize: ".76rem" }}>{new Date(activity.createdAt).toLocaleString("en-IN")} · {activity.method}</span></div>)}{!loginActivity.length && <p style={{ color: "#64748b", fontSize: ".85rem" }}>No login activity recorded yet.</p>}</div></section>;
+}
 const emptyService = { name: "", category: "", description: "", price: "", duration: "", image: "", badge: "", active: true };
 const fieldStyle = { width: "100%", padding: "0.7rem 0.8rem", borderRadius: 10, border: "1px solid #cbd5e1", font: "inherit", color: "#0f172a", background: "white" };
 const statusStyle = (value: string) => ({ background: ["approved", "completed", "confirmed", "paid", "active"].includes(value) ? "#dcfce7" : ["rejected", "cancelled", "inactive"].includes(value) ? "#fee2e2" : "#fef3c7", color: ["approved", "completed", "confirmed", "paid", "active"].includes(value) ? "#166534" : ["rejected", "cancelled", "inactive"].includes(value) ? "#991b1b" : "#92400e", padding: "0.25rem 0.55rem", borderRadius: 99, fontSize: "0.7rem", fontWeight: 800, textTransform: "uppercase" as const });
@@ -26,6 +33,8 @@ export default function AdminDashboardPage() {
   const [professionals, setProfessionals] = useState<Professional[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
+  const [users, setUsers] = useState<AdminUser[]>([]);
+  const [loginActivity, setLoginActivity] = useState<LoginActivity[]>([]);
   const [userCount, setUserCount] = useState(0);
   const [loading, setLoading] = useState(true); const [saving, setSaving] = useState(false);
   const [error, setError] = useState(""); const [notice, setNotice] = useState("");
@@ -34,8 +43,16 @@ export default function AdminDashboardPage() {
   const [serviceForm, setServiceForm] = useState(emptyService); const [editingService, setEditingService] = useState<Service | null>(null);
 
   const loadData = useCallback(async () => {
-    if (!db) { setError("Firebase is not configured. Add Firebase variables to .env.local."); setLoading(false); return; }
-    try { setLoading(true); setError(""); const [pros, serviceData, bookingData, users] = await Promise.all([getDocs(collection(db, "professionals")), getDocs(collection(db, "services")), getDocs(collection(db, "bookings")), getDocs(collection(db, "users"))]); setProfessionals(pros.docs.map(item => ({ id: item.id, ...item.data() } as Professional))); setServices(serviceData.docs.map(item => ({ id: item.id, ...item.data() } as Service))); setBookings(bookingData.docs.map(item => ({ id: item.id, ...item.data() } as Booking))); setUserCount(users.size); }
+    if (!db) {
+      const localUsers = localDb.getDocs("users") as unknown as AdminUser[];
+      const localActivity = localDb.getDocs("loginActivity") as unknown as LoginActivity[];
+      setUsers(localUsers); setLoginActivity(localActivity.sort((a, b) => b.createdAt.localeCompare(a.createdAt))); setUserCount(localUsers.length);
+      setProfessionals(localDb.getDocs("professionals") as unknown as Professional[]);
+      setServices(localDb.getDocs("services") as unknown as Service[]);
+      setBookings(localDb.getDocs("bookings") as unknown as Booking[]);
+      setLoading(false); return;
+    }
+    try { setLoading(true); setError(""); const [pros, serviceData, bookingData, userData, activityData] = await Promise.all([getDocs(collection(db, "professionals")), getDocs(collection(db, "services")), getDocs(collection(db, "bookings")), getDocs(collection(db, "users")), getDocs(collection(db, "loginActivity"))]); setProfessionals(pros.docs.map(item => ({ id: item.id, ...item.data() } as Professional))); setServices(serviceData.docs.map(item => ({ id: item.id, ...item.data() } as Service))); setBookings(bookingData.docs.map(item => ({ id: item.id, ...item.data() } as Booking))); setUsers(userData.docs.map(item => ({ id: item.id, ...item.data() } as AdminUser))); setLoginActivity(activityData.docs.map(item => ({ id: item.id, ...item.data() } as LoginActivity)).sort((a, b) => b.createdAt.localeCompare(a.createdAt))); setUserCount(userData.size); }
     catch (caught) { console.error(caught); setError("Could not load admin data. Check Firestore permissions and retry."); }
     finally { setLoading(false); }
   }, []);
@@ -52,8 +69,8 @@ export default function AdminDashboardPage() {
   const filteredPros = professionals.filter(pro => proFilter === "all" || (pro.verificationStatus || "approved") === proFilter);
   const filteredBookings = useMemo(() => bookings.filter(booking => { const search = bookingFilter.query.toLowerCase(); return (!search || [booking.serviceName, booking.customerName, booking.professionalName].some(value => value?.toLowerCase().includes(search))) && (bookingFilter.status === "all" || booking.status === bookingFilter.status) && (!bookingFilter.date || booking.date === bookingFilter.date); }), [bookings, bookingFilter]);
   if (authLoading || loading || !user || userProfile?.role !== "admin") return <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", background: "#f8fafc", color: "#475569", fontWeight: 700 }}><LoaderCircle size={28} className="spin" /> Loading secure admin panel...</div>;
-  const tabs: { id: Tab; label: string }[] = [{ id: "overview", label: "Overview" }, { id: "professionals", label: "Professionals" }, { id: "services", label: "Services" }, { id: "bookings", label: "Bookings" }];
-  return <div style={{ background: "#f8fafc", minHeight: "100vh" }}><Header /><main style={{ maxWidth: 1240, margin: "0 auto", padding: "110px 1.5rem 80px" }}>
+  const tabs: { id: Tab; label: string }[] = [{ id: "overview", label: "Overview" }, { id: "users", label: "Users & Logins" }, { id: "professionals", label: "Professionals" }, { id: "services", label: "Services" }, { id: "bookings", label: "Bookings" }];
+  return <div style={{ background: "#f8fafc", minHeight: "100vh" }}><Header /><main style={{ maxWidth: 1240, margin: "0 auto", padding: "110px 1.5rem 80px" }}><AdminUsersPanel users={users} loginActivity={loginActivity} />
     <section style={{ borderRadius: 24, padding: "2rem", color: "white", background: "linear-gradient(135deg,#0f172a,#312e81 58%,#9d174d)", marginBottom: "1.5rem" }}><h1 style={{ margin: 0, fontSize: "clamp(1.7rem,4vw,2.25rem)", display: "flex", alignItems: "center", gap: 10 }}><Shield /> Control Center</h1><p style={{ margin: "0.5rem 0 0", color: "#e2e8f0" }}>Manage professionals, services, and bookings securely.</p></section>
     <nav style={{ display: "flex", gap: 8, overflowX: "auto", marginBottom: "1.5rem" }}>{tabs.map(item => <button key={item.id} onClick={() => setTab(item.id)} style={{ border: "none", whiteSpace: "nowrap", cursor: "pointer", borderRadius: 99, padding: "0.65rem 1rem", fontWeight: 800, color: tab === item.id ? "white" : "#475569", background: tab === item.id ? "linear-gradient(135deg,#e11d48,#db2777)" : "white" }}>{item.label}</button>)}</nav>
     {error && <div role="alert" style={{ padding: "0.8rem 1rem", borderRadius: 12, marginBottom: 16, background: "#fef2f2", color: "#b91c1c", border: "1px solid #fecaca" }}>{error}</div>}{notice && <div role="status" style={{ padding: "0.8rem 1rem", borderRadius: 12, marginBottom: 16, background: "#f0fdf4", color: "#166534", border: "1px solid #bbf7d0" }}>{notice}</div>}
