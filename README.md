@@ -1,5 +1,16 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Google Search setup
+
+The app exposes SEO metadata, a canonical URL, `robots.txt`, and `sitemap.xml`. Before deploying, configure:
+
+```env
+NEXT_PUBLIC_SITE_URL=https://your-domain.com
+GOOGLE_SITE_VERIFICATION=your-search-console-token
+```
+
+Then deploy the app on that public domain, add the domain in [Google Search Console](https://search.google.com/search-console), verify it, and submit `https://your-domain.com/sitemap.xml`. Google indexing is not immediate and cannot happen while the app is only running locally.
+
 ## Getting Started
 
 First, run the development server:

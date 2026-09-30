@@ -18,6 +18,7 @@ const inter = Inter({
 });
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://glownxt.com";
+const googleSiteVerification = process.env.GOOGLE_SITE_VERIFICATION;
 
 export const viewport: Viewport = {
   themeColor: "#e11d48",
@@ -28,6 +29,9 @@ export const viewport: Viewport = {
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
+  alternates: {
+    canonical: "/",
+  },
   title: {
     default: "GlowNXT — India's Premium At-Home Beauty & Wellness Marketplace",
     template: "%s | GlowNXT",
@@ -97,6 +101,9 @@ export const metadata: Metadata = {
       "max-snippet": -1,
     },
   },
+  ...(googleSiteVerification
+    ? { verification: { google: googleSiteVerification } }
+    : {}),
 };
 
 const jsonLd = {
