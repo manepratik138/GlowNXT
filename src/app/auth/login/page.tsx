@@ -86,7 +86,14 @@ export default function LoginPage() {
       setResendSeconds(30);
     } catch (err: unknown) {
       const code = (err as { code?: string }).code || "";
-      setError(code === "auth/invalid-phone-number" ? "Invalid phone number." : "Could not send OTP. Enable Phone Auth and reCAPTCHA in Firebase.");
+      const messages: Record<string, string> = {
+        "auth/invalid-phone-number": "Invalid phone number. Use a 10-digit Indian number.",
+        "auth/operation-not-allowed": "Phone provider is not enabled in Firebase Authentication.",
+        "auth/captcha-check-failed": "reCAPTCHA failed. Add this domain in Firebase Authorized domains.",
+        "auth/quota-exceeded": "Firebase SMS quota is exceeded. Check billing/quota settings.",
+        "auth/too-many-requests": "Too many attempts. Wait and try again later.",
+      };
+      setError(messages[code] || "Could not send OTP. Check Firebase Phone Auth and Authorized Domains.");
       recaptchaVerifier.current?.clear();
       recaptchaVerifier.current = null;
     } finally {
@@ -113,7 +120,7 @@ export default function LoginPage() {
       await redirectForUser(credential.user.uid, normalizedPhone());
     } catch (err: unknown) {
       const code = (err as { code?: string }).code || "";
-      setError(code === "auth/invalid-verification-code" || (err instanceof Error && err.message === "invalid-demo-otp") ? "Incorrect OTP. Please try again." : "OTP verification failed. Please request a new OTP.");
+      setError(code === "auth/invalid-verification-code" || (err instanceof Error && err.message === "invalid-demo-otp") ? "Incorrect OTP. Please try again." : code === "auth/code-expired" ? "OTP expired. Request a new OTP." : "OTP verification failed. Please request a new OTP.");
       setLoading(false);
     }
   };
