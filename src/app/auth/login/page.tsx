@@ -186,7 +186,7 @@ export default function LoginPage() {
         const session = localAuthService.signIn(email, password);
         const userDoc = localDb.getDoc("users", session.uid);
         const userData = userDoc.exists() ? (userDoc.data() as { role: string }) : { role: "customer" };
-        void recordLoginActivity({ userId: session.uid, email: session.email, method: "local-fallback", role: userData.role });
+        void recordLoginActivity({ userId: session.uid, email: session.email, method: "local-demo", role: userData.role });
         window.location.href = userData.role === "admin" ? "/dashboard/admin" : userData.role === "professional" ? "/dashboard/pro" : "/dashboard/customer";
         return;
       } catch (localErr) {
