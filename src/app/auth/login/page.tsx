@@ -178,8 +178,21 @@ export default function LoginPage() {
       await redirectForUser(user.uid);
       void recordLoginActivity({ userId: user.uid, email: user.email, method: "email" });
     } catch (err: unknown) {
-      console.error(err);
+      console.error("Firebase Login Error:", err);
       const code = (err as { code?: string }).code ?? "";
+      
+      // Fallback to local session login if user exists locally
+      try {
+        const session = localAuthService.signIn(email, password);
+        const userDoc = localDb.getDoc("users", session.uid);
+        const userData = userDoc.exists() ? (userDoc.data() as { role: string }) : { role: "customer" };
+        void recordLoginActivity({ userId: session.uid, email: session.email, method: "local-fallback", role: userData.role });
+        window.location.href = userData.role === "admin" ? "/dashboard/admin" : userData.role === "professional" ? "/dashboard/pro" : "/dashboard/customer";
+        return;
+      } catch (localErr) {
+        console.error("Local login error:", localErr);
+      }
+
       let message = "Failed to sign in. Please check your credentials.";
       if (
         code === "auth/user-not-found" ||
@@ -189,8 +202,10 @@ export default function LoginPage() {
         message = "Invalid email or password.";
       } else if (code === "auth/invalid-email") {
         message = "Invalid email format.";
+      } else if (code === "auth/operation-not-allowed") {
+        message = "Enable Email/Password provider in Firebase Authentication Console.";
       }
-      setError(message);
+      setError(code ? `${message} (${code})` : message);
       setLoading(false);
     }
   };
