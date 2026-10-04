@@ -123,12 +123,6 @@ export default function RegisterPage() {
       return;
     }
 
-    if (!phoneVerified) {
-      if (otpSent) await verifyRegistrationOtp();
-      else await sendRegistrationOtp();
-      return;
-    }
-
     // ── LOCAL MODE (Firebase not configured) ─────────────────
     if (!auth || !db) {
       try {
@@ -418,7 +412,7 @@ export default function RegisterPage() {
                   boxShadow: (loading || success) ? "none" : "0 8px 24px rgba(225,29,72,0.35)",
                 }}
               >
-                {loading ? (otpSent && !phoneVerified ? "Verifying OTP..." : "Sending OTP...") : success ? "Redirecting..." : phoneVerified ? "Create Account 🚀" : otpSent ? "Verify Mobile OTP" : "Send Mobile OTP"}
+                {loading ? "Creating Account..." : success ? "Account Created! Redirecting..." : "Create Account 🚀"}
               </button>
             </form>
 
