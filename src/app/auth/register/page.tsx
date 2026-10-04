@@ -53,21 +53,29 @@ export default function RegisterPage() {
       if (!auth) {
         setDemoOtp("123456");
       } else {
-        try {
-          if (!recaptchaVerifier.current) recaptchaVerifier.current = new RecaptchaVerifier(auth, "registration-recaptcha", { size: "invisible" });
-          confirmationResult.current = await signInWithPhoneNumber(auth, formattedPhone, recaptchaVerifier.current);
-        } catch (firebaseErr: unknown) {
-          console.warn("Firebase Phone Auth failed, enabling fallback Demo OTP (123456):", firebaseErr);
-          setDemoOtp("123456");
+        if (!recaptchaVerifier.current) {
+          recaptchaVerifier.current = new RecaptchaVerifier(auth, "registration-recaptcha", { size: "invisible" });
         }
+        confirmationResult.current = await signInWithPhoneNumber(auth, formattedPhone, recaptchaVerifier.current);
       }
       setOtpSent(true);
       setError("");
     } catch (err: unknown) {
       console.error("Firebase Phone Auth Error:", err);
-      setDemoOtp("123456");
-      setOtpSent(true);
-      setError("");
+      const code = (err as { code?: string }).code || "";
+      let msg = "Could not send SMS OTP to your phone number.";
+      if (code === "auth/operation-not-allowed") {
+        msg = "Phone provider is not enabled in Firebase Authentication. Please enable it in Firebase Console.";
+      } else if (code === "auth/unauthorized-domain" || code === "auth/invalid-app-credential") {
+        msg = "Domain not authorized in Firebase. Add this domain to Authorized Domains in Firebase Settings.";
+      } else if (code === "auth/quota-exceeded") {
+        msg = "SMS quota exceeded in Firebase Console.";
+      } else if (code === "auth/invalid-phone-number") {
+        msg = "Invalid phone number format.";
+      }
+      setError(code ? `${msg} (${code})` : msg);
+      recaptchaVerifier.current?.clear();
+      recaptchaVerifier.current = null;
     } finally {
       setLoading(false);
     }
@@ -80,24 +88,18 @@ export default function RegisterPage() {
       return;
     }
     try {
-      if (!auth || demoOtp || !confirmationResult.current) {
-        if (otp !== "123456" && otp !== demoOtp) throw new Error("invalid-demo-otp");
+      if (!auth) {
+        if (otp !== demoOtp) throw new Error("invalid-demo-otp");
       } else {
-        try {
-          await confirmationResult.current.confirm(otp);
-          await signOut(auth);
-        } catch (confirmErr: unknown) {
-          if (otp === "123456") {
-            console.warn("Firebase confirmation error, accepted test OTP 123456", confirmErr);
-          } else {
-            throw confirmErr;
-          }
-        }
+        if (!confirmationResult.current) throw new Error("otp-session-expired");
+        await confirmationResult.current.confirm(otp);
+        await signOut(auth);
       }
       setPhoneVerified(true);
       setError("");
     } catch (err: unknown) {
-      setError(err instanceof Error && err.message === "invalid-demo-otp" ? "Incorrect OTP. Use 123456." : "OTP verification failed. Please try 123456.");
+      const code = (err as { code?: string }).code || "";
+      setError(code === "auth/invalid-verification-code" ? "Incorrect OTP entered. Check the SMS on your mobile." : "OTP verification failed. Please check the OTP sent to your phone.");
     } finally {
       setLoading(false);
     }

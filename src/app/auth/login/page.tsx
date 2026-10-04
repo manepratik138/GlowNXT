@@ -78,23 +78,28 @@ export default function LoginPage() {
         setResendSeconds(30);
         return;
       }
-      try {
-        if (!recaptchaVerifier.current) {
-          recaptchaVerifier.current = new RecaptchaVerifier(auth, "recaptcha-container", { size: "invisible" });
-        }
-        confirmationResult.current = await signInWithPhoneNumber(auth, formattedPhone, recaptchaVerifier.current);
-      } catch (firebaseErr: unknown) {
-        console.warn("Firebase Phone Auth failed, enabling fallback Demo OTP (123456):", firebaseErr);
-        setDemoOtp("123456");
+      if (!recaptchaVerifier.current) {
+        recaptchaVerifier.current = new RecaptchaVerifier(auth, "recaptcha-container", { size: "invisible" });
       }
+      confirmationResult.current = await signInWithPhoneNumber(auth, formattedPhone, recaptchaVerifier.current);
       setOtpSent(true);
       setResendSeconds(30);
     } catch (err: unknown) {
       console.error("Firebase Phone Auth Error:", err);
-      setDemoOtp("123456");
-      setOtpSent(true);
-      setResendSeconds(30);
-      setError("");
+      const code = (err as { code?: string }).code || "";
+      const messages: Record<string, string> = {
+        "auth/invalid-phone-number": "Invalid phone number. Use a 10-digit Indian number.",
+        "auth/operation-not-allowed": "Phone provider is not enabled in Firebase Authentication Console.",
+        "auth/captcha-check-failed": "reCAPTCHA failed. Add this domain in Firebase Authorized domains.",
+        "auth/invalid-app-credential": "Firebase could not verify this app. Check Authorized Domains.",
+        "auth/unauthorized-domain": "This website domain is not authorized in Firebase Authentication settings.",
+        "auth/quota-exceeded": "Firebase SMS quota exceeded.",
+        "auth/too-many-requests": "Too many attempts. Wait and try again later.",
+      };
+      const baseMsg = messages[code] || "Could not send SMS OTP to your phone.";
+      setError(code ? `${baseMsg} (${code})` : baseMsg);
+      recaptchaVerifier.current?.clear();
+      recaptchaVerifier.current = null;
     } finally {
       setLoading(false);
     }
@@ -108,25 +113,18 @@ export default function LoginPage() {
     setLoading(true);
     setError("");
     try {
-      if (!auth || demoOtp || !confirmationResult.current) {
-        if (otp !== "123456" && otp !== demoOtp) throw new Error("invalid-demo-otp");
+      if (!auth) {
+        if (otp !== demoOtp) throw new Error("invalid-demo-otp");
         window.location.href = "/dashboard/customer";
         return;
       }
-      try {
-        const credential = await confirmationResult.current.confirm(otp);
-        void recordLoginActivity({ userId: credential.user.uid, email: credential.user.email, phone: normalizedPhone(), method: "phone", role: "customer" });
-        await redirectForUser(credential.user.uid, normalizedPhone());
-      } catch (confirmErr: unknown) {
-        if (otp === "123456") {
-          window.location.href = "/dashboard/customer";
-          return;
-        }
-        throw confirmErr;
-      }
+      if (!confirmationResult.current) throw new Error("otp-session-expired");
+      const credential = await confirmationResult.current.confirm(otp);
+      void recordLoginActivity({ userId: credential.user.uid, email: credential.user.email, phone: normalizedPhone(), method: "phone", role: "customer" });
+      await redirectForUser(credential.user.uid, normalizedPhone());
     } catch (err: unknown) {
       const code = (err as { code?: string }).code || "";
-      setError(code === "auth/invalid-verification-code" || (err instanceof Error && err.message === "invalid-demo-otp") ? "Incorrect OTP. Please try 123456." : code === "auth/code-expired" ? "OTP expired. Request a new OTP." : "OTP verification failed. Please try 123456.");
+      setError(code === "auth/invalid-verification-code" ? "Incorrect OTP. Check the SMS sent to your phone." : code === "auth/code-expired" ? "OTP expired. Request a new OTP." : "OTP verification failed. Please try again.");
       setLoading(false);
     }
   };
